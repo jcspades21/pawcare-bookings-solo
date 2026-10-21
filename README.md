@@ -23,6 +23,9 @@ npm start
 Then open http://localhost:3000. Bookings are saved to `data/bookings.json`,
 which is created on the first booking and kept when the server restarts.
 
+On Windows PowerShell, if `npm` is blocked with "running scripts is disabled
+on this system", use `npm.cmd install` and `npm.cmd start` instead.
+
 To run the tests:
 
 ```bash

@@ -342,6 +342,18 @@ function initBookingForm() {
     var bookingError = document.getElementById('booking-error');
     var isSending = false;
 
+    // If a reply times out, the booking may still have been saved. A
+    // retry of the same booking reuses its request ID, so the backend
+    // returns the saved booking instead of a "slot taken" error.
+    var pendingRequest = null;
+
+    function makeRequestId() {
+        if (window.crypto && window.crypto.randomUUID) {
+            return window.crypto.randomUUID();
+        }
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    }
+
     function formatTime12h(time24) {
         if (!time24) return '';
         var parts = time24.split(':');
@@ -460,11 +472,20 @@ function initBookingForm() {
     }
 
     function sendBooking(booking) {
+        var key = JSON.stringify(booking);
+        if (!pendingRequest || pendingRequest.key !== key) {
+            pendingRequest = { key: key, id: makeRequestId() };
+        }
+        booking.requestId = pendingRequest.id;
+
         bookingError.hidden = true;
         setSending(true);
 
         callBookingApi('POST', '', booking)
             .then(function (reply) {
+                // The backend answered, so this request is finished either way.
+                pendingRequest = null;
+
                 if (!reply.ok) {
                     showBookingError(reply.message || 'Your booking could not be saved. Please try again.');
                     if (reply.error === 'slot_taken') {

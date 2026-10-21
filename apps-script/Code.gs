@@ -14,7 +14,7 @@
 var SHEET_ID = '1hcLXcIB93n-nK6VPrml1EljtvitaltMxVZ3qJLTLVzA';
 var SHEET_NAME = 'Bookings';
 var TIME_ZONE = 'Asia/Manila';
-var COLUMN_COUNT = 14;
+var COLUMN_COUNT = 15;
 
 var MAX_BODY_LENGTH = 5000;
 var MAX_DAYS_AHEAD = 365;
@@ -43,6 +43,7 @@ var COL_DATE = 9;
 var COL_TIME = 10;
 var COL_SERVICE = 8;
 var COL_STATUS = 13;
+var COL_REQUEST_ID = 14;
 
 // ---------------------------------------------------------
 // Web app entry points
@@ -121,6 +122,15 @@ function saveBooking(booking) {
 
     try {
         var sheet = getSheet();
+
+        // A retry after a timeout sends the same request ID. If that
+        // request was already saved, return the same booking instead of
+        // treating the visitor's own booking as a clash.
+        var savedId = findBookingByRequestId(sheet, booking.requestId);
+        if (savedId) {
+            return jsonOut({ ok: true, bookingId: savedId, status: 'pending' });
+        }
+
         var existing = getBookingsForDate(sheet, booking.date);
 
         if (overlapsAny(booking.time, booking.minutes, existing)) {
@@ -143,7 +153,8 @@ function saveBooking(booking) {
             booking.time,
             booking.addons.map(function (key) { return ADDONS[key]; }).join(', '),
             safeText(booking.notes),
-            'pending'
+            'pending',
+            booking.requestId
         ];
 
         // Plain text format first, so dates, times and +63 numbers are
@@ -235,6 +246,13 @@ function validateBooking(data) {
         errors.push('notes');
     }
 
+    // Optional. Older clients without it still work, they just can't
+    // be matched up on retry.
+    booking.requestId = cleanText(data.requestId);
+    if (booking.requestId && !/^[A-Za-z0-9-]{8,64}$/.test(booking.requestId)) {
+        booking.requestId = '';
+    }
+
     return { errors: errors, booking: booking };
 }
 
@@ -267,6 +285,21 @@ function getBookingsForDate(sheet, date) {
     });
 
     return booked;
+}
+
+function findBookingByRequestId(sheet, requestId) {
+    var lastRow = sheet.getLastRow();
+    if (!requestId || lastRow < 2) {
+        return '';
+    }
+
+    var rows = sheet.getRange(2, 1, lastRow - 1, COLUMN_COUNT).getValues();
+    for (var i = rows.length - 1; i >= 0; i--) {
+        if (String(rows[i][COL_REQUEST_ID]) === requestId) {
+            return String(rows[i][0]);
+        }
+    }
+    return '';
 }
 
 function overlapsAny(time, minutes, bookings) {

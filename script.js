@@ -9,14 +9,11 @@
 //                              then shows the booking ID
 // Plus a small character counter on the Contact form's message field.
 //
-// The backend is a Google Apps Script web app (apps-script/Code.gs)
-// that stores bookings in a Google Sheet. Requests are sent as
-// text/plain so the browser does not need a CORS preflight, which
-// Apps Script cannot answer.
+// The backend is an Express.js server (server/server.js) that also
+// serves this page, so the API is on the same address at /api.
 // =========================================================
 
-// Paste the web app URL from Apps Script > Deploy > Manage deployments.
-var BOOKING_API_URL = 'https://script.google.com/macros/s/AKfycbyPsjHwXaJih6S5BWE-6MiRq-gW8_1f0xb6_LPEjkt-CCVBQv9fqZzdpGgusY1KwVI/exec';
+var BOOKING_API_BASE = '/api';
 var REQUEST_TIMEOUT_MS = 15000;
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -31,13 +28,11 @@ document.addEventListener('DOMContentLoaded', function () {
 // Backend requests
 // ---------------------------------------------------------
 
-// Calls the Apps Script web app and resolves with its JSON reply.
-// Rejects with a plain message the page can show to the visitor.
-function callBookingApi(method, query, payload) {
-    if (!BOOKING_API_URL) {
-        return Promise.reject(new Error('Online booking is not set up yet. Please call the shop to book.'));
-    }
-
+// Calls the Express API and resolves with its JSON reply, including
+// replies like { ok: false, error: 'slot_taken' } that come with an
+// error status code. Rejects with a plain message the page can show
+// when the server can't be reached at all.
+function callBookingApi(method, path, payload) {
     var controller = new AbortController();
     var timer = window.setTimeout(function () {
         controller.abort();
@@ -45,21 +40,29 @@ function callBookingApi(method, query, payload) {
 
     var options = { method: method, signal: controller.signal };
     if (payload) {
-        options.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+        options.headers = { 'Content-Type': 'application/json' };
         options.body = JSON.stringify(payload);
     }
 
-    return fetch(BOOKING_API_URL + (query || ''), options)
+    return fetch(BOOKING_API_BASE + path, options)
         .then(function (response) {
-            if (!response.ok) {
-                throw new Error('bad status');
-            }
-            return response.json();
+            return response.json().then(function (reply) {
+                if (!reply || typeof reply.ok !== 'boolean') {
+                    throw new Error('unexpected reply');
+                }
+                return reply;
+            });
         })
         .catch(function (err) {
-            var message = err.name === 'AbortError'
-                ? 'The booking system took too long to answer. Please try again.'
-                : 'Could not reach the booking system. Check your connection and try again.';
+            var message;
+            if (err.name === 'AbortError') {
+                message = 'The booking system took too long to answer. Please try again.';
+            } else if (/\.github\.io$/.test(window.location.hostname)) {
+                // GitHub Pages only hosts the static files, not the server.
+                message = 'Online booking runs on the Express server. This GitHub Pages copy only shows the frontend.';
+            } else {
+                message = 'Could not reach the booking system. Check your connection and try again.';
+            }
             throw new Error(message);
         })
         .finally(function () {
@@ -214,7 +217,7 @@ function initTimeSlotPicker() {
 
         var loadNumber = ++latestLoad;
 
-        callBookingApi('GET', '?action=slots&date=' + encodeURIComponent(dateStr))
+        callBookingApi('GET', '/slots?date=' + encodeURIComponent(dateStr))
             .then(function (reply) {
                 if (loadNumber !== latestLoad) {
                     return;
@@ -435,7 +438,7 @@ function initBookingForm() {
         sendBooking(buildBooking());
     });
 
-    // Collects the form values in the shape apps-script/Code.gs expects.
+    // Collects the form values in the shape server/bookings.js expects.
     function buildBooking() {
         var addons = [];
         ['perfume', 'teeth', 'deshed'].forEach(function (key) {
@@ -481,7 +484,7 @@ function initBookingForm() {
         bookingError.hidden = true;
         setSending(true);
 
-        callBookingApi('POST', '', booking)
+        callBookingApi('POST', '/bookings', booking)
             .then(function (reply) {
                 // The backend answered, so this request is finished either way.
                 pendingRequest = null;

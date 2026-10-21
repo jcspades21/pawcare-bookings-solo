@@ -229,9 +229,9 @@
                         <small id="time-error" class="field-error" hidden>Please select an open time slot.</small>
                         <!--
                             The slot list is built by script.js from the bookings already
-                            saved in the Bookings sheet (read through the Apps Script web
-                            app). A slot is greyed out if it would overlap an existing
-                            booking plus the 15-minute sanitation buffer.
+                            saved on the Express server (GET /api/slots). A slot is greyed
+                            out if it would overlap an existing booking plus the 15-minute
+                            sanitation buffer.
                         -->
                     </div>
 
@@ -276,9 +276,9 @@
                 <dl id="confirmation-details"></dl>
                 <button type="button" id="book-another-btn" class="btn btn-secondary">Book Another Appointment</button>
                 <!--
-                    script.js only shows this block after the Apps Script web app
-                    replies that the booking row was saved. Calendar events and the
-                    confirmation email are planned for a later milestone.
+                    script.js only shows this block after the Express server replies
+                    that the booking was saved (POST /api/bookings). Calendar events
+                    and the confirmation email are planned for a later milestone.
                 -->
             </div>
         </section>

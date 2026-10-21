@@ -6,12 +6,15 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "test": "node --test test/api.test.js"
+    "test": "node --test test/rules.test.js test/api.test.js test/page.test.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "express": "4.22.3"
+  },
+  "devDependencies": {
+    "jsdom": "24.1.3"
   }
 }

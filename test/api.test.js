@@ -1,86 +1,68 @@
 // API tests for the Express backend. Run with: npm test
 //
-// Each test run uses its own temporary bookings file, so the real
+// Each run uses its own temporary data folder, so the real
 // data/bookings.json is never touched.
 
 var test = require('node:test');
 var assert = require('node:assert');
 var fs = require('fs');
-var os = require('os');
 var path = require('path');
-var createApp = require('../server/server');
-var bookings = require('../server/bookings');
+var h = require('./helpers');
 
-var dataFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pawcare-')), 'bookings.json');
-var server;
-var baseUrl;
+var dataDir = h.makeDataDir();
+var bookingsFile = path.join(dataDir, 'bookings.json');
+var DATE = h.futureDate(7);
+var YESTERDAY = h.futureDate(-1);
+var app;
 
-// A date a week from now in Manila time, so tests never hit "today".
-var DATE = bookings.addDays(bookings.manilaNow().date, 7);
-var YESTERDAY = bookings.addDays(bookings.manilaNow().date, -1);
+// A high limit here, so the rate limit doesn't get in the way of the
+// other tests. It has its own test further down.
+var OPTIONS = { dataDir: dataDir, rateLimit: { max: 1000, windowMs: 60000 } };
 
-function startServer() {
-    return new Promise(function (resolve) {
-        server = createApp({ dataFile: dataFile }).listen(0, function () {
-            baseUrl = 'http://localhost:' + server.address().port;
-            resolve();
-        });
-    });
-}
-
-function stopServer() {
-    return new Promise(function (resolve) {
-        server.close(resolve);
-    });
-}
-
-function booking(change) {
-    return Object.assign({
-        ownerName: 'Juan Dela Cruz',
-        email: 'Juan@Example.com',
-        phone: '+639171234567',
-        petName: 'Bantay',
-        breed: 'Aspin',
-        petSize: 'medium',
-        service: 'full-groom',
-        date: DATE,
-        time: '09:00',
-        addons: ['teeth'],
-        notes: 'Nervous around water',
-        website: ''
-    }, change || {});
-}
-
-function post(body, contentType) {
-    return fetch(baseUrl + '/api/bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': contentType || 'application/json' },
-        body: typeof body === 'string' ? body : JSON.stringify(body)
-    }).then(function (res) {
+function request(method, urlPath, body, contentType) {
+    var options = { method: method, headers: {} };
+    if (body !== undefined) {
+        options.headers['Content-Type'] = contentType || 'application/json';
+        options.body = typeof body === 'string' ? body : JSON.stringify(body);
+    }
+    return fetch(app.baseUrl + urlPath, options).then(function (res) {
         return res.json().then(function (json) {
-            return { status: res.status, body: json };
+            return { status: res.status, body: json, headers: res.headers };
         });
     });
 }
 
-function getSlots(date) {
-    return fetch(baseUrl + '/api/slots?date=' + date).then(function (res) {
-        return res.json().then(function (json) {
-            return { status: res.status, body: json };
-        });
-    });
+function book(change) {
+    return request('POST', '/api/bookings', h.sampleBooking(change));
 }
 
-test.before(startServer);
-test.after(stopServer);
+test.before(async function () {
+    app = await h.startServer(OPTIONS);
+});
+test.after(function () {
+    return app.stop();
+});
 
+// ---------------------------------------------------------
+// Config
+// ---------------------------------------------------------
+test('config returns the shop rules the browser needs', async function () {
+    var r = await request('GET', '/api/config');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.services['full-groom'].minutes, 90);
+    assert.strictEqual(r.body.bufferMinutes, 15);
+    assert.ok(r.body.slotTimes.indexOf('09:00') !== -1);
+});
+
+// ---------------------------------------------------------
+// Bookings
+// ---------------------------------------------------------
 test('valid booking is saved and gets a booking ID', async function () {
-    var r = await post(booking());
+    var r = await book();
     assert.strictEqual(r.status, 201);
-    assert.strictEqual(r.body.ok, true);
     assert.match(r.body.bookingId, /^PC-\d{8}-[0-9A-F]{4}$/);
 
-    var saved = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    var saved = JSON.parse(fs.readFileSync(bookingsFile, 'utf8'));
     assert.strictEqual(saved.length, 1);
     assert.strictEqual(saved[0].email, 'juan@example.com');
     assert.strictEqual(saved[0].phone, '+639171234567');
@@ -89,25 +71,23 @@ test('valid booking is saved and gets a booking ID', async function () {
 });
 
 test('slots for the date include the saved booking', async function () {
-    var r = await getSlots(DATE);
+    var r = await request('GET', '/api/slots?date=' + DATE);
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(r.body.booked, [{ time: '09:00', minutes: 90 }]);
 });
 
 test('same slot is rejected', async function () {
-    var r = await post(booking({ service: 'nail-trim' }));
+    var r = await book({ service: 'nail-trim' });
     assert.strictEqual(r.status, 409);
     assert.strictEqual(r.body.error, 'slot_taken');
 });
 
 test('overlapping slot is rejected (90 min groom plus 15 min buffer)', async function () {
-    var r = await post(booking({ time: '10:00', service: 'bath' }));
-    assert.strictEqual(r.status, 409);
+    assert.strictEqual((await book({ time: '10:00', service: 'bath' })).status, 409);
 });
 
 test('slot right after the buffer is accepted', async function () {
-    var r = await post(booking({ time: '11:00', service: 'bath' }));
-    assert.strictEqual(r.status, 201);
+    assert.strictEqual((await book({ time: '11:00', service: 'bath' })).status, 201);
 });
 
 test('missing and invalid fields are rejected with the field names', async function () {
@@ -116,10 +96,13 @@ test('missing and invalid fields are rejected with the field names', async funct
         [{ email: 'not-an-email' }, 'email address'],
         [{ phone: '09171234567' }, 'phone number'],
         [{ petName: '' }, 'pet name'],
+        [{ breed: 'x'.repeat(61) }, 'breed'],
         [{ petSize: 'huge' }, 'pet size'],
         [{ service: 'spa-day' }, 'service'],
+        [{ service: 'constructor' }, 'service'],
         [{ date: YESTERDAY }, 'date'],
         [{ date: '2026-02-30' }, 'date'],
+        [{ date: h.futureDate(400) }, 'date'],
         [{ time: '12:00' }, 'time slot'],
         [{ time: '16:30' }, 'time slot'],
         [{ addons: ['caviar'] }, 'add-ons'],
@@ -128,79 +111,176 @@ test('missing and invalid fields are rejected with the field names', async funct
     ];
 
     for (var i = 0; i < cases.length; i++) {
-        var r = await post(booking(cases[i][0]));
+        var r = await book(cases[i][0]);
         assert.strictEqual(r.status, 400, JSON.stringify(cases[i][0]));
         assert.ok(r.body.fields.indexOf(cases[i][1]) !== -1, cases[i][1] + ' -> ' + r.body.message);
     }
 });
 
-test('junk, wrong type, oversized and spam requests are rejected', async function () {
-    assert.strictEqual((await post('not json at all')).status, 400);
-    assert.strictEqual((await post('[1,2,3]')).status, 400);
-    assert.strictEqual((await post(JSON.stringify(booking()), 'text/plain')).status, 415);
-    assert.strictEqual((await post(booking({ notes: 'x'.repeat(6000) }))).status, 413);
+test('several bad fields are all reported at once', async function () {
+    var r = await book({ ownerName: '', phone: '123', petSize: '' });
+    assert.deepStrictEqual(r.body.fields, ['full name', 'phone number', 'pet size']);
+});
 
-    var spam = await post(booking({ time: '14:00', website: 'http://spam.example' }));
+test('junk, wrong type, oversized and spam requests are rejected', async function () {
+    assert.strictEqual((await request('POST', '/api/bookings', 'not json at all')).status, 400);
+    assert.strictEqual((await request('POST', '/api/bookings', '[1,2,3]')).status, 400);
+    assert.strictEqual((await request('POST', '/api/bookings', JSON.stringify(h.sampleBooking()), 'text/plain')).status, 415);
+    assert.strictEqual((await book({ notes: 'x'.repeat(6000) })).status, 413);
+
+    var spam = await book({ time: '14:00', website: 'http://spam.example' });
     assert.strictEqual(spam.status, 400);
-    assert.strictEqual(spam.body.message, 'The booking request was rejected.');
+    assert.strictEqual(spam.body.message, 'The request was rejected.');
 });
 
 test('bad slot query and unknown API paths return JSON errors', async function () {
-    assert.strictEqual((await getSlots('tomorrow')).status, 400);
-
-    var res = await fetch(baseUrl + '/api/nothing-here');
-    assert.strictEqual(res.status, 404);
-    assert.strictEqual((await res.json()).error, 'not_found');
+    assert.strictEqual((await request('GET', '/api/slots?date=tomorrow')).status, 400);
+    var r = await request('GET', '/api/nothing-here');
+    assert.strictEqual(r.status, 404);
+    assert.strictEqual(r.body.error, 'not_found');
 });
 
 test('retry with the same request ID returns the same booking', async function () {
-    var first = await post(booking({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0001' }));
-    var again = await post(booking({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0001' }));
+    var first = await book({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0001' });
+    var again = await book({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0001' });
     assert.strictEqual(first.status, 201);
     assert.strictEqual(again.status, 200);
     assert.strictEqual(again.body.bookingId, first.body.bookingId);
 
-    var other = await post(booking({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0002' }));
+    var other = await book({ time: '13:00', service: 'nail-trim', requestId: 'retry-test-0002' });
     assert.strictEqual(other.status, 409);
 });
 
 test('five requests for one slot at the same time: only one is saved', async function () {
     var requests = [];
     for (var i = 0; i < 5; i++) {
-        requests.push(post(booking({ time: '15:00', service: 'bath', petName: 'Racer ' + i })));
+        requests.push(book({ time: '15:00', service: 'bath', petName: 'Racer ' + i }));
     }
     var results = await Promise.all(requests);
-    var saved = results.filter(function (r) { return r.status === 201; });
-    var taken = results.filter(function (r) { return r.status === 409; });
+    assert.strictEqual(results.filter(function (r) { return r.status === 201; }).length, 1);
+    assert.strictEqual(results.filter(function (r) { return r.status === 409; }).length, 4);
+});
+
+// ---------------------------------------------------------
+// Find my booking
+// ---------------------------------------------------------
+test('a booking can be looked up with its ID and email', async function () {
+    var made = await book({ date: h.futureDate(8), time: '09:30', service: 'bath' });
+    var id = made.body.bookingId;
+
+    var r = await request('GET', '/api/bookings/' + id.toLowerCase() + '?email=JUAN@example.com');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.booking.bookingId, id);
+    assert.strictEqual(r.body.booking.time, '09:30');
+    assert.strictEqual(r.body.booking.service, 'Basic Bath & Dry');
+    // Contact details are never sent back.
+    assert.strictEqual(r.body.booking.phone, undefined);
+    assert.strictEqual(r.body.booking.email, undefined);
+
+    var wrongEmail = await request('GET', '/api/bookings/' + id + '?email=someone@else.com');
+    var wrongId = await request('GET', '/api/bookings/PC-20990101-0000?email=juan@example.com');
+    assert.strictEqual(wrongEmail.status, 404);
+    assert.strictEqual(wrongId.status, 404);
+    // Same answer either way, so it doesn't reveal which IDs exist.
+    assert.strictEqual(wrongEmail.body.message, wrongId.body.message);
+});
+
+// ---------------------------------------------------------
+// Contact messages
+// ---------------------------------------------------------
+test('a contact message is saved with a reference ID', async function () {
+    var r = await request('POST', '/api/messages', {
+        name: 'Maria Santos',
+        email: 'maria@example.com',
+        contactMethod: 'phone',
+        message: 'Do you groom cats?\nThanks!',
+        website: ''
+    });
+    assert.strictEqual(r.status, 201);
+    assert.match(r.body.messageId, /^MSG-\d{8}-[0-9A-F]{4}$/);
+
+    var saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'messages.json'), 'utf8'));
     assert.strictEqual(saved.length, 1);
-    assert.strictEqual(taken.length, 4);
+    assert.strictEqual(saved[0].message, 'Do you groom cats?\nThanks!');
+    assert.strictEqual(saved[0].status, 'new');
 });
 
-test('cancelled bookings free up their slot', async function () {
-    var list = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    list[0].status = 'cancelled';
-    fs.writeFileSync(dataFile, JSON.stringify(list));
+test('bad contact messages are rejected with the field names', async function () {
+    var r = await request('POST', '/api/messages', { name: 'M', email: 'nope', contactMethod: 'fax', message: '' });
+    assert.strictEqual(r.status, 400);
+    assert.deepStrictEqual(r.body.fields, ['full name', 'email address', 'contact method', 'message']);
 
-    var r = await getSlots(DATE);
-    var times = r.body.booked.map(function (b) { return b.time; });
-    assert.ok(times.indexOf('09:00') === -1);
+    var long = await request('POST', '/api/messages', { name: 'Maria', email: 'm@example.com', message: 'x'.repeat(501) });
+    assert.deepStrictEqual(long.body.fields, ['message']);
 });
 
+test('a repeated contact message is only saved once', async function () {
+    var msg = { name: 'Ana Cruz', email: 'ana@example.com', message: 'Hello', requestId: 'msg-retry-0001' };
+    var first = await request('POST', '/api/messages', msg);
+    var again = await request('POST', '/api/messages', msg);
+    assert.strictEqual(again.body.messageId, first.body.messageId);
+    var saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'messages.json'), 'utf8'));
+    assert.strictEqual(saved.length, 2);
+});
+
+// ---------------------------------------------------------
+// Storage and restarts
+// ---------------------------------------------------------
 test('bookings are still there after the server restarts', async function () {
-    var before = (await getSlots(DATE)).body.booked;
-    await stopServer();
-    await startServer();
-    var after = (await getSlots(DATE)).body.booked;
+    var before = (await request('GET', '/api/slots?date=' + DATE)).body.booked;
+    await app.stop();
+    app = await h.startServer(OPTIONS);
+    var after = (await request('GET', '/api/slots?date=' + DATE)).body.booked;
     assert.ok(after.length > 0);
     assert.deepStrictEqual(after, before);
 });
 
+test('a booking cancelled in the file frees its slot after a restart', async function () {
+    await app.stop();
+    var list = JSON.parse(fs.readFileSync(bookingsFile, 'utf8'));
+    list[0].status = 'cancelled';
+    fs.writeFileSync(bookingsFile, JSON.stringify(list));
+    app = await h.startServer(OPTIONS);
+
+    var times = (await request('GET', '/api/slots?date=' + DATE)).body.booked.map(function (b) { return b.time; });
+    assert.ok(times.indexOf('09:00') === -1);
+});
+
+// ---------------------------------------------------------
+// Protection
+// ---------------------------------------------------------
+test('too many requests from one visitor get a 429 with Retry-After', async function () {
+    var limited = await h.startServer({ dataDir: h.makeDataDir(), rateLimit: { max: 3, windowMs: 60000 } });
+    var statuses = [];
+    for (var i = 0; i < 5; i++) {
+        var res = await fetch(limited.baseUrl + '/api/bookings/PC-20990101-0000?email=a@b.co');
+        statuses.push(res.status);
+        if (res.status === 429) {
+            assert.ok(Number(res.headers.get('retry-after')) > 0);
+            assert.strictEqual((await res.json()).error, 'rate_limited');
+        }
+    }
+    await limited.stop();
+    assert.deepStrictEqual(statuses, [404, 404, 404, 429, 429]);
+});
+
+test('security headers are set and server details are hidden', async function () {
+    var res = await fetch(app.baseUrl + '/');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff');
+    assert.strictEqual(res.headers.get('x-frame-options'), 'DENY');
+    assert.match(res.headers.get('content-security-policy'), /default-src 'self'/);
+    assert.strictEqual(res.headers.get('x-powered-by'), null);
+});
+
 test('server code and data are not served to the browser', async function () {
-    var paths = ['/data/bookings.json', '/server/server.js', '/package.json'];
+    var paths = ['/data/bookings.json', '/data/messages.json', '/server/server.js', '/package.json', '/test/api.test.js'];
     for (var i = 0; i < paths.length; i++) {
-        var res = await fetch(baseUrl + paths[i]);
+        var res = await fetch(app.baseUrl + paths[i]);
         assert.strictEqual(res.status, 404, paths[i]);
     }
-    assert.strictEqual((await fetch(baseUrl + '/')).status, 200);
-    assert.strictEqual((await fetch(baseUrl + '/script.js')).status, 200);
+    assert.strictEqual((await fetch(app.baseUrl + '/script.js')).status, 200);
+    var img = await fetch(app.baseUrl + '/images/bath-service.png');
+    assert.strictEqual(img.status, 200);
+    assert.match(img.headers.get('cache-control'), /max-age=604800/);
 });

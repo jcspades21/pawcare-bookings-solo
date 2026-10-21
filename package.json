@@ -1,0 +1,17 @@
+{
+  "name": "pawcare-bookings",
+  "version": "2.0.0",
+  "description": "Pet grooming booking site with an Express.js backend",
+  "private": true,
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test test/api.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "4.22.3"
+  }
+}

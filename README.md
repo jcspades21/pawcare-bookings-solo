@@ -8,11 +8,8 @@ the day before the appointment.
 
 Built for MO-IT161 Web Systems and Technology — Milestone 1 (Weeks 2–5).
 
-## Group Members
-- Jan Carlos Mah
-- Ela Abigail Acal
-- Jenny Rose Villaroza
-- Roselyn Lumbao
+## Developer
+- Jan Carlos Mah (solo project)
 
 ## Project Status (Milestone 1)
 
@@ -41,7 +38,7 @@ this is called out in code comments in `script.js`.
 ## File Structure
 
 ```
-pawcare-bookings/
+pawcare-bookings-solo/
 ├── index.html      # Main page structure
 ├── style.css        # Styling and layout
 ├── script.js         # Interactive behavior
@@ -53,7 +50,7 @@ pawcare-bookings/
 
 Visitors can open the deployed website at:
 
-**https://jcspades21.github.io/pawcare-bookings/**
+**https://jcspades21.github.io/pawcare-bookings-solo/**
 
 To enable or check GitHub Pages, open the repository's **Settings > Pages**
 menu and configure it to deploy from the `main` branch and the `/ (root)`
@@ -66,8 +63,8 @@ No build step is required. Clone the repository, then serve the folder with a
 local static server:
 
 ```bash
-git clone https://github.com/jcspades21/pawcare-bookings.git
-cd pawcare-bookings
+git clone https://github.com/jcspades21/pawcare-bookings-solo.git
+cd pawcare-bookings-solo
 python3 -m http.server 8000
 ```
 
@@ -77,7 +74,7 @@ also works, but a local server is more reliable for loading assets.
 ## Workflow Documentation
 
 Implementation decisions, priorities, and progress tracking for this
-project are documented in the team's **Browser-Based Application
+project are documented in the **Browser-Based Application
 Development Workflow Worksheet** (Google Sheet), updated weekly alongside
 this repository.
 
@@ -89,8 +86,8 @@ slot selection, booking validation, request preview, contact feedback, and
 character counting. The interface clearly labels booking and contact feedback
 as frontend-only behavior until the backend is implemented.
 
-Before submission, the team should update the Browser-Based Application
+Before submission, update the Browser-Based Application
 Development Workflow Worksheet with the final repository URL, Weeks 2–5
 progress, implemented interactions, dependencies, scope decisions, discussion
-notes, reflection, and team contributions. The worksheet is external to this
+notes, and reflection. The worksheet is external to this
 repository and is not represented by a local file.

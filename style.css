@@ -335,6 +335,32 @@ legend {
     display: block;
 }
 
+.slot-retry {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--color-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Spam trap field: moved off screen instead of display:none,
+   since some bots skip fields that are display:none. */
+.hp-field {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 .char-count {
     color: var(--color-muted);
     font-size: 0.8rem;

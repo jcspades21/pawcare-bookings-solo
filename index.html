@@ -131,8 +131,8 @@
                 <li>Select the grooming service your pet needs.</li>
                 <li>Choose an available date and time.</li>
                 <li>Fill out your contact and pet details.</li>
-                <li>Review your appointment request details.</li>
-                <li>Receive confirmation and reminders after the backend is connected.</li>
+                <li>Confirm your booking and get a booking ID right away.</li>
+                <li>Email confirmations and reminders are coming in a later update.</li>
             </ol>
 
             <h3>Why Pet Owners Choose Us</h3>
@@ -228,12 +228,10 @@
                         <p id="selected-time-display" class="status-message" aria-live="polite"></p>
                         <small id="time-error" class="field-error" hidden>Please select an open time slot.</small>
                         <!--
-                            NOTE FOR LATER MILESTONE:
-                            The slot list below is currently generated in the browser by
-                            script.js to demonstrate the interaction. Once the Apps Script
-                            backend exists, the same list will instead be populated from a
-                            real read of the shop Calendar (9AM-5PM, minus existing events
-                            and a 15-minute buffer) rather than the simulated data used here.
+                            The slot list is built by script.js from the bookings already
+                            saved in the Bookings sheet (read through the Apps Script web
+                            app). A slot is greyed out if it would overlap an existing
+                            booking plus the 15-minute sanitation buffer.
                         -->
                     </div>
 
@@ -254,8 +252,15 @@
                     </div>
                 </fieldset>
 
+                <!-- Spam trap: hidden from visitors, so only bots fill it in. -->
+                <div class="hp-field" aria-hidden="true">
+                    <label for="website">Leave this field empty</label>
+                    <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+                </div>
+
                 <button type="submit" class="btn btn-primary">Confirm Booking</button>
                 <button type="reset" class="btn btn-secondary">Clear Form</button>
+                <p id="booking-error" class="field-error" role="alert" hidden></p>
 
             </form>
 
@@ -263,20 +268,17 @@
             <!-- BOOKING CONFIRMATION MESSAGE  -->
             <!-- ============================= -->
             <div id="booking-confirmation" aria-live="polite" hidden>
-                <h3>Booking Request Preview</h3>
+                <h3>Booking Request Received</h3>
                 <p>
-                    This preview passed the browser's validation checks. No booking,
-                    calendar event, or email is created until the backend is connected.
+                    Your booking was saved. Keep your booking ID in case you need to
+                    contact the shop. Email confirmations are not set up yet.
                 </p>
                 <dl id="confirmation-details"></dl>
                 <button type="button" id="book-another-btn" class="btn btn-secondary">Book Another Appointment</button>
                 <!--
-                    NOTE FOR LATER MILESTONE:
-                    script.js currently reveals this block and fills confirmation-details
-                    purely in the browser once the form passes validation. Once the Apps
-                    Script backend exists, this should only reveal after the Calendar
-                    event and Sheet row are actually created and the confirmation email
-                    is sent, rather than on client-side validation alone.
+                    script.js only shows this block after the Apps Script web app
+                    replies that the booking row was saved. Calendar events and the
+                    confirmation email are planned for a later milestone.
                 -->
             </div>
         </section>

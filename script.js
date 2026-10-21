@@ -1,18 +1,23 @@
 // =========================================================
-// PawCare Bookings — Homework 5: Adding Interactivity
+// PawCare Bookings: frontend behavior
 //
 // Three interactions, tied directly to High-priority items in
 // the Workflow Worksheet's "Planned Interaction Areas":
 //   1. Service Selection  -> syncs the service cards with the booking form
-//   2. Time Slot Picker   -> generates and validates open slots for a date
-//   3. Booking Confirmation -> validates the form, then reveals a summary
+//   2. Time Slot Picker   -> loads booked times for a date from the backend
+//   3. Booking Confirmation -> validates the form, saves it to the backend,
+//                              then shows the booking ID
 // Plus a small character counter on the Contact form's message field.
 //
-// No backend exists yet, so "available slots" are simulated in the
-// browser (see getBookedSlotsForDate). This is called out in the HTML
-// comments and the worksheet update as something that gets replaced
-// once the Google Apps Script / Calendar integration is built.
+// The backend is a Google Apps Script web app (apps-script/Code.gs)
+// that stores bookings in a Google Sheet. Requests are sent as
+// text/plain so the browser does not need a CORS preflight, which
+// Apps Script cannot answer.
 // =========================================================
+
+// Paste the web app URL from Apps Script > Deploy > Manage deployments.
+var BOOKING_API_URL = '';
+var REQUEST_TIMEOUT_MS = 15000;
 
 document.addEventListener('DOMContentLoaded', function () {
     initServiceSelection();
@@ -21,6 +26,51 @@ document.addEventListener('DOMContentLoaded', function () {
     initContactCharCounter();
     initContactForm();
 });
+
+// ---------------------------------------------------------
+// Backend requests
+// ---------------------------------------------------------
+
+// Calls the Apps Script web app and resolves with its JSON reply.
+// Rejects with a plain message the page can show to the visitor.
+function callBookingApi(method, query, payload) {
+    if (!BOOKING_API_URL) {
+        return Promise.reject(new Error('Online booking is not set up yet. Please call the shop to book.'));
+    }
+
+    var controller = new AbortController();
+    var timer = window.setTimeout(function () {
+        controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+
+    var options = { method: method, signal: controller.signal };
+    if (payload) {
+        options.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+        options.body = JSON.stringify(payload);
+    }
+
+    return fetch(BOOKING_API_URL + (query || ''), options)
+        .then(function (response) {
+            if (!response.ok) {
+                throw new Error('bad status');
+            }
+            return response.json();
+        })
+        .catch(function (err) {
+            var message = err.name === 'AbortError'
+                ? 'The booking system took too long to answer. Please try again.'
+                : 'Could not reach the booking system. Check your connection and try again.';
+            throw new Error(message);
+        })
+        .finally(function () {
+            window.clearTimeout(timer);
+        });
+}
+
+function toMinutes(time24) {
+    var parts = time24.split(':');
+    return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
 
 // ---------------------------------------------------------
 // 1. Service Selection -> Booking Form sync
@@ -105,26 +155,25 @@ function initTimeSlotPicker() {
         return hour12 + ':' + minute + ' ' + suffix;
     }
 
-    // Deterministic pseudo-"already booked" slots per date, so the
-    // same date always shows the same availability, and different
-    // dates show different results (simulates reading a real Calendar).
-    function getBookedSlotsForDate(dateStr) {
-        var seed = 0;
-        for (var i = 0; i < dateStr.length; i++) {
-            seed += dateStr.charCodeAt(i);
+    // A slot is taken if the new appointment (plus the 15-minute
+    // sanitation buffer) would overlap an existing one.
+    function isSlotTaken(time, duration, bookings) {
+        var start = toMinutes(time);
+        var end = start + duration + 15;
+        return bookings.some(function (b) {
+            var otherStart = toMinutes(b.time);
+            var otherEnd = otherStart + b.minutes + 15;
+            return start < otherEnd && otherStart < end;
+        });
+    }
+
+    // Slots earlier than the current time can't be booked for today.
+    function isSlotPast(dateStr, time) {
+        if (dateStr !== getTodayString()) {
+            return false;
         }
-        var bookedCount = 2 + (seed % 3); // 2, 3, or 4 slots booked
-        var booked = [];
-        var attempt = 0;
-        while (booked.length < bookedCount && attempt < SLOT_TIMES.length) {
-            var index = (seed * (attempt + 3)) % SLOT_TIMES.length;
-            var time = SLOT_TIMES[index];
-            if (booked.indexOf(time) === -1) {
-                booked.push(time);
-            }
-            attempt++;
-        }
-        return booked;
+        var now = new Date();
+        return toMinutes(time) <= now.getHours() * 60 + now.getMinutes();
     }
 
     function clearSelection() {
@@ -132,11 +181,62 @@ function initTimeSlotPicker() {
         selectedTimeDisplay.textContent = '';
     }
 
-    function renderSlots(dateStr) {
+    function showSlotMessage(text, withRetry) {
         slotList.innerHTML = '';
-        clearSelection();
+        var li = document.createElement('li');
+        li.className = 'slot-placeholder';
+        li.textContent = text;
+        if (withRetry) {
+            var retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'slot-retry';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', function () {
+                renderSlots(dateInput.value);
+            });
+            li.appendChild(document.createTextNode(' '));
+            li.appendChild(retry);
+        }
+        slotList.appendChild(li);
+    }
 
-        var bookedSlots = getBookedSlotsForDate(dateStr);
+    // Each load gets a number so a slow reply for an old date can't
+    // overwrite the slots for the date the visitor picked last.
+    var latestLoad = 0;
+
+    // Bookings from the last successful load, reused when only the
+    // service changes so we don't ask the backend again.
+    var lastLoaded = null;
+
+    function renderSlots(dateStr) {
+        clearSelection();
+        showSlotMessage('Checking open times...', false);
+
+        var loadNumber = ++latestLoad;
+
+        callBookingApi('GET', '?action=slots&date=' + encodeURIComponent(dateStr))
+            .then(function (reply) {
+                if (loadNumber !== latestLoad) {
+                    return;
+                }
+                if (!reply.ok) {
+                    showSlotMessage(reply.message || 'Could not load open times.', true);
+                    return;
+                }
+                lastLoaded = { date: dateStr, bookings: reply.booked || [] };
+                drawSlots(dateStr, lastLoaded.bookings);
+            })
+            .catch(function (err) {
+                if (loadNumber === latestLoad) {
+                    showSlotMessage(err.message, true);
+                }
+            });
+    }
+
+    function drawSlots(dateStr, bookings) {
+        slotList.innerHTML = '';
+
+        var duration = SERVICE_DURATIONS[serviceSelect.value] || 30;
         var availableSlotTimes = getAvailableSlotTimes(serviceSelect.value);
 
         availableSlotTimes.forEach(function (time) {
@@ -148,12 +248,12 @@ function initTimeSlotPicker() {
             button.dataset.time = time;
             button.setAttribute('aria-pressed', 'false');
 
-            var isBooked = bookedSlots.indexOf(time) !== -1;
+            var isBooked = isSlotTaken(time, duration, bookings) || isSlotPast(dateStr, time);
 
             if (isBooked) {
                 button.classList.add('slot-booked');
                 button.disabled = true;
-                button.setAttribute('aria-label', formatTime12h(time) + ', already booked');
+                button.setAttribute('aria-label', formatTime12h(time) + ', not available');
             } else {
                 button.addEventListener('click', function () {
                     var allButtons = slotList.querySelectorAll('.slot-btn');
@@ -172,10 +272,17 @@ function initTimeSlotPicker() {
             li.appendChild(button);
             slotList.appendChild(li);
         });
+
+        if (!slotList.querySelector('.slot-btn:not(:disabled)')) {
+            showSlotMessage('No open times left on this date. Please pick another day.', false);
+        }
     }
 
     dateInput.addEventListener('change', function () {
         var value = dateInput.value;
+
+        // Ignore any load still in flight for the previous date.
+        latestLoad++;
 
         if (!value) {
             slotList.innerHTML = '<li class="slot-placeholder">Select a date above to see open time slots.</li>';
@@ -203,7 +310,13 @@ function initTimeSlotPicker() {
 
     dateInput.min = getTodayString();
     serviceSelect.addEventListener('change', function () {
-        if (isAllowedDate(dateInput.value)) {
+        if (!isAllowedDate(dateInput.value)) {
+            return;
+        }
+        if (lastLoaded && lastLoaded.date === dateInput.value) {
+            clearSelection();
+            drawSlots(dateInput.value, lastLoaded.bookings);
+        } else {
             renderSlots(dateInput.value);
         }
     });
@@ -225,6 +338,9 @@ function initBookingForm() {
     var bookAnotherBtn = document.getElementById('book-another-btn');
     var dateInput = document.getElementById('appointment-date');
     var dateError = document.getElementById('date-error');
+    var submitBtn = form.querySelector('button[type="submit"]');
+    var bookingError = document.getElementById('booking-error');
+    var isSending = false;
 
     function formatTime12h(time24) {
         if (!time24) return '';
@@ -252,6 +368,7 @@ function initBookingForm() {
         petSizeError.hidden = true;
         timeError.hidden = true;
         dateError.hidden = true;
+        bookingError.hidden = true;
         dateInput.removeAttribute('aria-invalid');
     }
 
@@ -299,26 +416,90 @@ function initBookingForm() {
             timeError.hidden = true;
         }
 
-        if (!isValid) {
+        if (!isValid || isSending) {
             return;
         }
 
-        // Build the confirmation summary from the entered values.
+        sendBooking(buildBooking());
+    });
+
+    // Collects the form values in the shape apps-script/Code.gs expects.
+    function buildBooking() {
+        var addons = [];
+        ['perfume', 'teeth', 'deshed'].forEach(function (key) {
+            if (document.getElementById('addon-' + key).checked) {
+                addons.push(key);
+            }
+        });
+
+        return {
+            ownerName: document.getElementById('owner-name').value,
+            email: document.getElementById('owner-email').value,
+            phone: document.getElementById('owner-phone').value,
+            petName: document.getElementById('pet-name').value,
+            breed: document.getElementById('pet-breed').value,
+            petSize: form.querySelector('input[name="pet-size"]:checked').value,
+            service: document.getElementById('service-type').value,
+            date: dateInput.value,
+            time: timeInput.value,
+            addons: addons,
+            notes: document.getElementById('pet-notes').value,
+            website: document.getElementById('website').value
+        };
+    }
+
+    function setSending(sending) {
+        isSending = sending;
+        submitBtn.disabled = sending;
+        submitBtn.textContent = sending ? 'Saving your booking...' : 'Confirm Booking';
+    }
+
+    function showBookingError(message) {
+        bookingError.textContent = message;
+        bookingError.hidden = false;
+    }
+
+    function sendBooking(booking) {
+        bookingError.hidden = true;
+        setSending(true);
+
+        callBookingApi('POST', '', booking)
+            .then(function (reply) {
+                if (!reply.ok) {
+                    showBookingError(reply.message || 'Your booking could not be saved. Please try again.');
+                    if (reply.error === 'slot_taken') {
+                        // Reload the slots so the taken time shows as unavailable.
+                        dateInput.dispatchEvent(new Event('change'));
+                    }
+                    return;
+                }
+                showConfirmation(booking, reply.bookingId);
+            })
+            .catch(function (err) {
+                showBookingError(err.message);
+            })
+            .finally(function () {
+                setSending(false);
+            });
+    }
+
+    // Only runs after the backend says the booking row was saved.
+    function showConfirmation(booking, bookingId) {
         var serviceSelect = document.getElementById('service-type');
         var serviceText = serviceSelect.options[serviceSelect.selectedIndex].text;
-        var checkedSize = form.querySelector('input[name="pet-size"]:checked');
 
         detailsList.innerHTML = '';
-        addRow('Owner', document.getElementById('owner-name').value);
-        addRow('Pet', document.getElementById('pet-name').value + ' (' + checkedSize.value + ')');
+        addRow('Booking ID', bookingId);
+        addRow('Owner', booking.ownerName);
+        addRow('Pet', booking.petName + ' (' + booking.petSize + ')');
         addRow('Service', serviceText);
-        addRow('Date', document.getElementById('appointment-date').value);
-        addRow('Time', formatTime12h(timeInput.value));
+        addRow('Date', booking.date);
+        addRow('Time', formatTime12h(booking.time));
 
         form.hidden = true;
         confirmationBox.hidden = false;
         confirmationBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    }
 
     bookAnotherBtn.addEventListener('click', function () {
         form.reset();

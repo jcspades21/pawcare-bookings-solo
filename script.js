@@ -16,7 +16,7 @@
 // =========================================================
 
 // Paste the web app URL from Apps Script > Deploy > Manage deployments.
-var BOOKING_API_URL = '';
+var BOOKING_API_URL = 'https://script.google.com/macros/s/AKfycbyPsjHwXaJih6S5BWE-6MiRq-gW8_1f0xb6_LPEjkt-CCVBQv9fqZzdpGgusY1KwVI/exec';
 var REQUEST_TIMEOUT_MS = 15000;
 
 document.addEventListener('DOMContentLoaded', function () {

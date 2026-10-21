@@ -367,19 +367,19 @@ legend {
     align-self: flex-end;
 }
 
-#confirmation-details {
+.details-list {
     display: grid;
     grid-template-columns: max-content 1fr;
     gap: 0.3rem 1rem;
     margin: var(--spacing-md) 0;
 }
 
-#confirmation-details dt {
+.details-list dt {
     font-weight: 600;
     color: var(--color-primary-dark);
 }
 
-#confirmation-details dd {
+.details-list dd {
     margin: 0;
 }
 
@@ -437,6 +437,94 @@ legend {
 
 #booking-confirmation h3 {
     margin-top: 0;
+}
+
+/* Review step and booking lookup result */
+.panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+}
+
+.panel h3 {
+    margin-top: 0;
+}
+
+.draft-status {
+    background: #fff8ec;
+    border: 1px solid #f1d9b5;
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--color-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Fields the server flagged get a red outline next to their message. */
+[aria-invalid="true"] {
+    border-color: #b3261e;
+    outline: 2px solid #b3261e;
+    outline-offset: 1px;
+}
+
+/* ---------- Accessibility ---------- */
+
+/* Hidden until a keyboard user tabs to it. */
+.skip-link {
+    position: absolute;
+    left: var(--spacing-md);
+    top: -3rem;
+    z-index: 20;
+    background: var(--color-primary-dark);
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+}
+
+.skip-link:focus {
+    top: var(--spacing-sm);
+}
+
+/* A clear outline for keyboard focus on every control. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex="-1"]:focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+main:focus {
+    outline: none;
+}
+
+/* Keep section headings from hiding under the sticky menu. */
+main section,
+main aside,
+#booking-review,
+#booking-confirmation {
+    scroll-margin-top: 4rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        scroll-behavior: auto !important;
+        transition: none !important;
+    }
 }
 
 /* ---------- Business Hours ---------- */

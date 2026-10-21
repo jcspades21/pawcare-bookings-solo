@@ -8,21 +8,24 @@
 </head>
 <body>
 
+    <a href="#main" class="skip-link">Skip to main content</a>
+
     <header>
         <h1>PawCare Bookings</h1>
         <p>Simple online booking for your pet's next grooming appointment.</p>
     </header>
 
-    <nav>
+    <nav aria-label="Main">
         <a href="#home">Home</a>
         <a href="#services">Services</a>
         <a href="#how-it-works">How It Works</a>
         <a href="#book">Book Now</a>
+        <a href="#find-booking">My Booking</a>
         <a href="#hours">Business Hours</a>
         <a href="#contact">Contact Us</a>
     </nav>
 
-    <main>
+    <main id="main" tabindex="-1">
 
         <!-- ============================= -->
         <!-- HOME / INTRO SECTION          -->
@@ -154,7 +157,12 @@
 
             <p id="service-select-status" class="status-message" aria-live="polite"></p>
 
-            <form action="">
+            <p id="draft-status" class="draft-status" hidden>
+                We filled in the details you started last time.
+                <button type="button" id="draft-clear-btn" class="link-btn">Clear them</button>
+            </p>
+
+            <form action="" id="booking-form">
 
                 <fieldset>
                     <legend>Owner Information</legend>
@@ -189,7 +197,7 @@
                         <input type="text" id="pet-breed" name="pet-breed" placeholder="Aspin, Poodle, etc.">
                     </div>
 
-                    <fieldset aria-describedby="pet-size-error">
+                    <fieldset id="pet-size-group" aria-describedby="pet-size-error">
                         <legend>Pet Size</legend>
 
                         <div class="radio-group">
@@ -220,8 +228,8 @@
                     </div>
 
                     <div id="slot-picker">
-                        <p>Available Time Slots for the selected date:</p>
-                        <ul id="time-slot-list">
+                        <p id="slot-list-label">Available Time Slots for the selected date:</p>
+                        <ul id="time-slot-list" aria-labelledby="slot-list-label" aria-describedby="time-error" aria-busy="false">
                             <li class="slot-placeholder">Select a date above to see open time slots.</li>
                         </ul>
                         <input type="hidden" id="appointment-time" name="appointment-time" aria-describedby="time-error">
@@ -248,7 +256,7 @@
 
                     <div class="form-group">
                         <label for="pet-notes">Special Instructions or Allergies:</label>
-                        <textarea id="pet-notes" name="pet-notes" rows="4" cols="40" placeholder="e.g. Pet is nervous around water"></textarea>
+                        <textarea id="pet-notes" name="pet-notes" rows="4" cols="40" maxlength="500" placeholder="e.g. Pet is nervous around water"></textarea>
                     </div>
                 </fieldset>
 
@@ -258,28 +266,74 @@
                     <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
                 </div>
 
-                <button type="submit" class="btn btn-primary">Confirm Booking</button>
+                <button type="submit" class="btn btn-primary">Review Booking</button>
                 <button type="reset" class="btn btn-secondary">Clear Form</button>
                 <p id="booking-error" class="field-error" role="alert" hidden></p>
 
             </form>
 
             <!-- ============================= -->
+            <!-- REVIEW STEP                   -->
+            <!-- ============================= -->
+            <!-- Shown after the form passes its checks, before anything is sent. -->
+            <div id="booking-review" class="panel" hidden>
+                <h3 id="review-heading" tabindex="-1">Check Your Booking</h3>
+                <p>Please check these details. Nothing is booked until you confirm.</p>
+                <dl id="review-details" class="details-list"></dl>
+                <p id="review-error" class="field-error" role="alert" hidden></p>
+                <button type="button" id="review-confirm-btn" class="btn btn-primary">Confirm and Book</button>
+                <button type="button" id="review-edit-btn" class="btn btn-secondary">Edit Details</button>
+            </div>
+
+            <!-- ============================= -->
             <!-- BOOKING CONFIRMATION MESSAGE  -->
             <!-- ============================= -->
             <div id="booking-confirmation" aria-live="polite" hidden>
-                <h3>Booking Request Received</h3>
+                <h3 id="confirmation-heading" tabindex="-1">Booking Request Received</h3>
                 <p>
-                    Your booking was saved. Keep your booking ID in case you need to
-                    contact the shop. Email confirmations are not set up yet.
+                    Your booking was saved. Keep your booking ID. You can check your
+                    appointment any time under <a href="#find-booking">My Booking</a>.
+                    Email confirmations are not set up yet.
                 </p>
-                <dl id="confirmation-details"></dl>
+                <dl id="confirmation-details" class="details-list"></dl>
                 <button type="button" id="book-another-btn" class="btn btn-secondary">Book Another Appointment</button>
                 <!--
                     script.js only shows this block after the Express server replies
                     that the booking was saved (POST /api/bookings). Calendar events
                     and the confirmation email are planned for a later milestone.
                 -->
+            </div>
+        </section>
+
+        <hr>
+
+        <!-- ============================= -->
+        <!-- FIND MY BOOKING               -->
+        <!-- ============================= -->
+        <section id="find-booking">
+            <h2>Find My Booking</h2>
+
+            <p>Enter your booking ID and the email you booked with to check your appointment.</p>
+
+            <form action="" id="find-booking-form">
+                <div class="form-group">
+                    <label for="find-id">Booking ID:</label>
+                    <input type="text" id="find-id" name="find-id" placeholder="PC-20261023-A52A" autocomplete="off"
+                        pattern="\s*[Pp][Cc]-[0-9]{8}-[0-9A-Fa-f]{4}\s*" title="Booking IDs look like PC-20261023-A52A." required>
+                </div>
+
+                <div class="form-group">
+                    <label for="find-email">Email Address:</label>
+                    <input type="email" id="find-email" name="find-email" autocomplete="email" placeholder="juan@example.com" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Find Booking</button>
+                <p id="find-error" class="field-error" role="alert" hidden></p>
+            </form>
+
+            <div id="find-result" class="panel" aria-live="polite" hidden>
+                <h3 id="find-heading" tabindex="-1">Your Booking</h3>
+                <dl id="find-details" class="details-list"></dl>
             </div>
         </section>
 
@@ -312,7 +366,7 @@
 
             <p>Have a question before booking? Send us a message below.</p>
 
-            <form action="">
+            <form action="" id="contact-form">
                 <div class="form-group">
                     <label for="contact-name">Full Name:</label>
                     <input type="text" id="contact-name" name="contact-name" required>
@@ -334,22 +388,30 @@
                 <div class="form-group">
                     <label for="contact-message">Message:</label>
                     <textarea id="contact-message" name="contact-message" rows="5" cols="40" maxlength="500" required></textarea>
-                    <small id="message-char-count" class="char-count">0 / 500 characters</small>
+                    <small id="message-char-count" class="char-count" aria-live="polite">0 / 500 characters</small>
+                </div>
+
+                <!-- Spam trap: hidden from visitors, so only bots fill it in. -->
+                <div class="hp-field" aria-hidden="true">
+                    <label for="contact-website">Leave this field empty</label>
+                    <input type="text" id="contact-website" name="website" tabindex="-1" autocomplete="off">
                 </div>
 
                 <button type="submit" class="btn btn-primary">Send Message</button>
                 <button type="reset" class="btn btn-secondary">Clear Form</button>
                 <p id="contact-status" class="status-message" aria-live="polite"></p>
+                <p id="contact-error" class="field-error" role="alert" hidden></p>
             </form>
         </section>
 
     </main>
 
     <footer>
-        <nav id="footer-links">
+        <nav id="footer-links" aria-label="Footer">
             <a href="#home">Home</a>
             <a href="#services">Services</a>
             <a href="#book">Book Now</a>
+            <a href="#find-booking">My Booking</a>
             <a href="#contact">Contact Us</a>
             <a href="#home">Back to Top</a>
         </nav>

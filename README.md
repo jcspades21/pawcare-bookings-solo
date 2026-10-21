@@ -1,66 +1,97 @@
 # PawCare Bookings
 
-A browser-based pet grooming appointment booking application. Pet owners
-select a grooming service, pick an available time slot, and submit their
-info to (eventually) create a Google Calendar event, log a booking record
-in a Google Sheet, and receive a confirmation email plus a reminder email
-the day before the appointment.
+A browser-based booking app for a pet grooming shop. Pet owners pick a
+service, choose an open time slot, and send their details. The booking is
+saved to a Google Sheet and the visitor gets a booking ID right away.
 
-Built for MO-IT161 Web Systems and Technology — Milestone 1 (Weeks 2–5).
+Built for MO-IT161 Web Systems and Technology.
+
+**Live site:** https://jcspades21.github.io/pawcare-bookings-solo/
 
 ## Developer
 - Jan Carlos Mah (solo project)
 
-## Project Status (Milestone 1)
+## What works now
 
-This milestone covers the frontend-only stage of the project:
+**Frontend (Milestone 1)**
+- Semantic HTML for services, how booking works, the booking form, business
+  hours, the contact form and the footer.
+- Responsive CSS with reusable classes (`.btn`, `.form-group`,
+  `.service-card`, slot picker states).
+- JavaScript for service selection, the time slot picker, form validation,
+  and a character counter on the contact form.
 
-- **HTML** — semantic structure for all core sections: services, how-it-works,
-  booking form, business hours, contact form, footer.
-- **CSS** (`style.css`) — layout, typography, reusable component classes
-  (`.btn`, `.form-group`, `.service-card`, slot-picker states), and a
-  responsive layout.
-- **JavaScript** (`script.js`) — interactive features:
-  - Service selection sync between the Services section and the booking form
-  - A generated Time Slot List with simulated availability per date, filtered
-    by service duration and the 15-minute sanitation buffer
-  - Booking form validation (including custom checks for pet size and time
-    slot selection) and a dynamic request preview
-  - A live character counter on the Contact form's message field
-  - Frontend-only contact form feedback after valid submission
+**Backend (Milestone 2, Homework 7)**
+- Booking submission. The form sends the booking to a Google Apps Script web
+  app. The script checks every field again, makes sure the slot is still
+  free, saves one row to the Bookings sheet, and replies with a booking ID.
+  The confirmation only shows after that reply.
+- Real availability. The slot picker asks the backend which times are
+  already booked on the chosen date. A slot is greyed out if it would overlap
+  an existing booking plus the 15-minute sanitation buffer.
+- Double booking protection. The script uses a lock, so two people
+  submitting the same slot at the same moment can't both get it.
+- Safe retries. If the reply is slow and the visitor tries again, the same
+  request ID is sent, so they get their saved booking back instead of a
+  "slot taken" error.
+- A hidden spam trap field and size limits on requests.
 
-**Not yet implemented** (planned for later milestones): Google Calendar
-event creation, Google Sheet booking log, confirmation/reminder emails, and
-dynamic service data loaded from a Sheet. The current Time Slot List uses a
-simulated availability formula in the browser, not a real Calendar read —
-this is called out in code comments in `script.js`.
+**Not built yet:** Google Calendar events, confirmation and reminder emails,
+loading services from a Services Sheet, and saving contact form messages.
+The contact form still only shows a message in the browser.
 
-## File Structure
+## How a booking moves through the app
+
+1. The visitor picks a date. `script.js` sends
+   `GET ?action=slots&date=...` to the web app.
+2. `Code.gs` reads the Bookings sheet and returns the booked times for that
+   date. The browser greys out any slot that would overlap them.
+3. The visitor fills in the form and clicks Confirm Booking. The browser
+   checks the fields, then sends the booking as JSON in a POST request. It
+   uses `text/plain` so the browser skips the CORS preflight, which Apps
+   Script can't answer.
+4. `Code.gs` checks the fields again, locks the script, makes sure the slot
+   is still free, and writes the row.
+5. The script replies with `{ ok: true, bookingId: "PC-..." }`, or with
+   `ok: false` and a message. The page shows the confirmation or the error.
+
+## File structure
 
 ```
 pawcare-bookings-solo/
-├── index.html      # Main page structure
-├── style.css        # Styling and layout
-├── script.js         # Interactive behavior
-├── images/            # Banner and service image assets
+├── index.html          # Page structure
+├── style.css           # Styling and layout
+├── script.js           # Frontend behavior and backend requests
+├── apps-script/
+│   └── Code.gs         # Apps Script web app (copy of the deployed code)
+├── images/             # Banner and service images
+├── AI_USE_LOG.md       # Record of AI use for this project
 └── README.md
 ```
 
-## Viewing the Website
+## Backend setup
 
-Visitors can open the deployed website at:
+The backend runs on Google Apps Script, so there's no server to host.
 
-**https://jcspades21.github.io/pawcare-bookings-solo/**
+1. Make a Google Sheet with a tab named `Bookings` and these headers in row
+   1: Booking ID, Submitted At (Asia/Manila), Owner Name, Email, Phone, Pet
+   Name, Breed, Pet Size, Service, Date, Time Slot, Add-ons, Notes, Status,
+   Request ID. Set columns A to O to Plain text, so dates and +63 numbers
+   aren't converted.
+2. In the sheet, open **Extensions > Apps Script** and paste in
+   `apps-script/Code.gs`. Change `SHEET_ID` to your sheet's ID.
+3. Click **Deploy > New deployment > Web app**. Set Execute as **Me** and
+   Who has access **Anyone**, then authorize it.
+4. Copy the `/exec` URL into `BOOKING_API_URL` at the top of `script.js`.
 
-To enable or check GitHub Pages, open the repository's **Settings > Pages**
-menu and configure it to deploy from the `main` branch and the `/ (root)`
-folder. Leave the **Custom domain** field empty unless you own a separate
-domain name. The GitHub Pages URL above is a project URL, not a custom domain.
+After changing `Code.gs`, use **Deploy > Manage deployments > Edit > New
+version**. That keeps the same URL.
 
-## Running Locally
+To free up a slot, change that booking's Status to `cancelled` in the sheet.
 
-No build step is required. Clone the repository, then serve the folder with a
-local static server:
+## Running locally
+
+No build step. Clone the repo and serve the folder:
 
 ```bash
 git clone https://github.com/jcspades21/pawcare-bookings-solo.git
@@ -68,26 +99,16 @@ cd pawcare-bookings-solo
 python3 -m http.server 8000
 ```
 
-Open **http://localhost:8000** in a browser. Opening `index.html` directly
-also works, but a local server is more reliable for loading assets.
+Then open http://localhost:8000. Bookings made locally still go to the real
+sheet, since the web app URL is the same.
 
-## Workflow Documentation
+## GitHub Pages
 
-Implementation decisions, priorities, and progress tracking for this
-project are documented in the **Browser-Based Application
-Development Workflow Worksheet** (Google Sheet), updated weekly alongside
-this repository.
+The site deploys from the `main` branch, `/ (root)` folder. You can check this
+under **Settings > Pages**.
 
-## Milestone 1 Review Status
+## Workflow documentation
 
-The current frontend demonstrates the required HTML structure, responsive CSS
-presentation, and JavaScript interactions for service selection, date and time
-slot selection, booking validation, request preview, contact feedback, and
-character counting. The interface clearly labels booking and contact feedback
-as frontend-only behavior until the backend is implemented.
-
-Before submission, update the Browser-Based Application
-Development Workflow Worksheet with the final repository URL, Weeks 2–5
-progress, implemented interactions, dependencies, scope decisions, discussion
-notes, and reflection. The worksheet is external to this
-repository and is not represented by a local file.
+Plans, priorities and weekly progress are tracked in the Browser-Based
+Application Development Workflow Worksheet (Google Sheet), which is kept
+outside this repo.
